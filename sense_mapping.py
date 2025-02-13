@@ -51,7 +51,7 @@ def return_sense_dict():
         'In short': ['Expansion.Level-of-detail.Arg1-as-detail', 'Contingency.Cause+SpeechAct.Result+SpeechAct', 'Contingency.Cause.Reason', 'Contingency.Cause.Result', 'Expansion.Conjunction', 'Expansion.Equivalence', 'Expansion.Level-of-detail.Arg2-as-detail'], 
         'In sum': ['Expansion.Level-of-detail.Arg1-as-detail', 'Expansion.Conjunction', 'Expansion.Equivalence', 'Expansion.Level-of-detail.Arg2-as-detail'], 
         'In the end': ['Comparison.Concession.Arg2-as-denier', 'Comparison.Contrast', 'Contingency.Cause.Result', 'Expansion.Conjunction', 'Expansion.Level-of-detail.Arg1-as-detail', 'Expansion.Level-of-detail.Arg2-as-detail', 'Temporal.Asynchronous.Precedence', 'Expansion.Equivalence'], 
-        'In the meantime': ['Temporal.Asynchronous.Succession', 'Temporal.Synchronous|Comparison.Contrast', 'Temporal.Synchronous', 'Temporal.Synchronous'], 
+        'In the meantime': ['Temporal.Asynchronous.Succession', 'Temporal.Synchronous|Comparison.Contrast', 'Temporal.Synchronous'], 
         'In the meanwhile': ['Temporal.Synchronous'], 
         'In this case': ['Expansion.Instantiation.Arg2-as-instance'], 
         'In this way': ['Contingency.Cause.Result'], 
