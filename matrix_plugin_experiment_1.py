@@ -26,14 +26,14 @@ from transformers.models.bert.modeling_bert import BertOnlyMLMHead
 from typing import Dict
 
 from configuration import DATA_PATH, HOME_DIR
-from sense_mapping import return_sense_dict
+from sense_mapping import sense_dict
 import torch.nn.functional as F
 import numpy as np
 
 
 def create_mapping(dataset, model_name, dataset_path, model_path, dataset_suffix):
     tok: BertTokenizerFast = AutoTokenizer.from_pretrained(model_name)
-    seen_dataset = datasets.DatasetDict({k: v for k, v in dataset.items() if k in ['train', 'dev', 'test_preposed', 'test_canonical'] and k in dataset})
+    seen_dataset = datasets.DatasetDict({k: v for k, v in dataset.items() if k in ['train', 'dev', 'test_idrr', 'test_preposed', 'test_canonical'] and k in dataset})
     with open('Multi-token_list.txt', 'r') as f:
         vocab = set(f.read().splitlines())
         print(f'added tokens: {vocab}')
@@ -129,7 +129,7 @@ class Logger:
 @torch.no_grad()
 def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTokenizerFast, ckpt_path, sense_dict,log=False):
     test_model = MatrixDecoder.load_from_checkpoint(ckpt_path, model=matrix).cuda().eval()
-    test_dataset = seen_dataset['test_preposed']
+    test_dataset = dataset['test_canonical']
     rev_map = {v: k for k, v in mapping.items()}
     acc_at_to_check = [1, 2, 3, 4, 5, 10, 20, 50, 100]
     found, total = defaultdict(int), 0
@@ -138,14 +138,19 @@ def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTo
     total_top_n = defaultdict(int)
     correct_top_n = defaultdict(int)
 
-    logger = Logger(Path(ckpt_path).parent.parent / 'test_res_preposed.log')
+    logger = Logger(Path(ckpt_path).parent.parent / 'top5_res_canonical_epoch4.log')
     if log:
-        top5_fp = open(Path(ckpt_path).parent.parent / 'top5_res_preposed.csv', 'w')
+        top5_fp = open(Path(ckpt_path).parent.parent / 'top5_res_canonical_epoch4.csv', 'w')
         writer = csv.DictWriter(top5_fp, fieldnames=[
-                                                     'surprisal', 'entropy',
-                                                     'top1_match', 'top5_match', 
-                                                     'likelihoods_1', 'likelihoods_5',
-                                                     'corpus', 'datasource', 'genre', 'sense', 'connective', 'text', 'masked_text', 'preposed_phrase','top50_results'])
+                                                    'surprisal', 'entropy',
+                                                    'top1_match', 'top5_match', 
+                                                    'corpus', 
+                                                    'datasource', 
+                                                    'genre', 
+                                                    'sense', 'connective', 'text', 'masked_text',
+                                                    'preposed_phrase',
+                                                    'top50_results'
+                                                    ])
         writer.writeheader()
 
     BATCH_SZ = 128
@@ -176,6 +181,7 @@ def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTo
 
             # Calculate probabilities
             probs = F.softmax(logits[i], dim=-1).cpu().numpy()
+            
             # Calculate surprisal
             nll = -np.log(np.sum([probs[j] for j in range(len(probs)) if rev_map[j] in sense_dict and gold_sense in sense_dict[rev_map[j]]]))
             if not np.isinf(nll):
@@ -200,44 +206,12 @@ def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTo
                 if correct_num > 0 :
                     found[acc_at] += 1
 
-                # top-k predictions with their probabilities
-                top_k_indices = results.indices[i][:acc_at].cpu().numpy()  
-                top_k_probs = probs[top_k_indices] 
-                top_k_predictions_with_probs = [(text_res[i][j], top_k_probs[j]) for j in range(len(top_k_indices))]
-                
-                if acc_at == 1:
-                    # Extract top-1 predictions and probabilities
-                    top_1_predictions_with_probs = top_k_predictions_with_probs[:1]  # Since top_k_predictions_with_probs already contains top-1
-                    
-                    # Check if gold_sense is in top-1 predictions
-                    if any(gold_sense in sense_dict.get(predicted, []) for predicted, prob in top_1_predictions_with_probs):
-                        top1_match = 'V'
-                    else:
-                        top1_match = 'X'
-                
-                if acc_at == 5:
-                    top_5_predictions_with_probs = top_k_predictions_with_probs[:5]
-                    if any(gold_sense in sense_dict.get(predicted, []) for predicted in predicted_connectives):
-                        top5_match = 'V'
-                    else:
-                        top5_match = 'X'
+            # top1/top5 match
+            top_1_predictions = text_res[i][:1]
+            top_5_predictions = text_res[i][:5]
 
-            # Initialize top matches and probs
-            top_matches = []
-            top_probs = []
-
-            for j in range(5):  # top-5
-                predicted = text_res[i][j]
-                top_prob = probs[results.indices[i][j].cpu().numpy()]
-                
-                if gold_sense in sense_dict.get(predicted, []):
-                    top_matches.append('V')
-                else:
-                    top_matches.append('X')
-                
-                top_probs.append(top_prob)
-            if i==1:
-                print(text_res[0][:100])
+            top1_match = 'V' if any(gold_sense in sense_dict.get(pred, []) for pred in top_1_predictions) else 'X'
+            top5_match = 'V' if any(gold_sense in sense_dict.get(pred, []) for pred in top_5_predictions) else 'X'
 
             if log:
                 writer.writerow({
@@ -245,8 +219,6 @@ def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTo
                     'surprisal': nll,
                     'top1_match': top1_match,
                     'top5_match': top5_match,
-                    'likelihoods_1': top_1_predictions_with_probs,
-                    'likelihoods_5': top_5_predictions_with_probs,
                     'corpus': corpus[i],
                     'datasource': datasource[i],
                     'genre': genre[i],
@@ -256,25 +228,14 @@ def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTo
                     'masked_text': masked_texts[i],
                     'preposed_phrase': preposed_phrase[i],
                     'top50_results': text_res[i][:50],
-               
                 })
-
-
-
-            # # Log top-5 predictions with probabilities one by one
-            # logger.print(f"Sample {total}:")
-            # for pred, prob in top_5_predictions_with_probs:
-            #     logger.print(f"  Prediction: {pred}, Prob: {prob:.4f}")
-
-        # if irow % PRINT_EVERY == 0:
-        #     for acc_at in acc_at_to_check:
-        #         logger.print(f"accuracy at {acc_at} is: {found[acc_at] / total:.2%} ({found[acc_at]} out of {total})")
 
     # Final log output after processing all batches
     for acc_at in acc_at_to_check:
         logger.print(f"Final accuracy at {acc_at}: {found[acc_at] / total:.2%} ({found[acc_at]} out of {total})")
         precision = correct_top_n[acc_at] / total_top_n[acc_at]
         logger.print(f"Precision at {acc_at}: {precision:.2%} ({correct_top_n[acc_at]} out of {total_top_n[acc_at]})\n")
+
     surprisal = np.sum(surprisals)
     avg_entropy = np.mean(entropies)
 
@@ -282,25 +243,6 @@ def test(matrix, dataset: datasets.DatasetDict, mapping: Dict, tokenizer: BertTo
     logger.print(f"Average surprisal: {np.mean(surprisals)}")
     logger.print(f"Average entropy: {avg_entropy}")
 
-    # Sort the examples by surprisal and entropy to find the top and least 5
-    example_list_sorted_by_surprisal = sorted(example_list, key=lambda x: x['surprisal'])
-    example_list_sorted_by_entropy = sorted(example_list, key=lambda x: x['entropy'])
-
-    logger.print("\nTop 5 examples with highest surprisal:")
-    for example in example_list_sorted_by_surprisal[-5:]:
-        logger.print(example)
-
-    logger.print("\nTop 5 examples with lowest surprisal:")
-    for example in example_list_sorted_by_surprisal[:5]:
-        logger.print(example)
-
-    logger.print("\nTop 5 examples with highest entropy:")
-    for example in example_list_sorted_by_entropy[-5:]:
-        logger.print(example)
-
-    logger.print("\nTop 5 examples with lowest entropy:")
-    for example in example_list_sorted_by_entropy[:5]:
-        logger.print(example)
 
     if log:
         top5_fp.close()
@@ -310,14 +252,14 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='bert-base-cased')
     parser.add_argument('--version', type=str, default='version_1')
     parser.add_argument('--input_path', type=str)
-    parser.add_argument('--dataset_name', type=str, default='wiki_2args')
+    parser.add_argument('--dataset_name', type=str, default='wiki')
     parser.add_argument('--ckpt', type=str, default=None)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--val_check_interval', type=float, default=0.25)
     parser.add_argument('--num_gpus', type=int, default=1)
     parser.add_argument('--dev_size', type=int, default=20_000)
-    parser.add_argument('--epochs', type=int, default=4)
+    parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--no_log', action='store_true')
@@ -361,6 +303,11 @@ if __name__ == '__main__':
         test_split_path = os.path.join(input_path, 'test_canonical')
         if 'test_canonical' in dataset and os.path.exists(test_split_path):
             dataset['test_canonical'] = datasets.load_from_disk(test_split_path)
+
+        test_split_path = os.path.join(input_path, 'test_idrr')
+        if 'test_idrr' in dataset and os.path.exists(test_split_path):
+            dataset['test_idrr'] = datasets.load_from_disk(test_split_path)
+
         print('increasing vocab')
         model, seen_dataset, mapping = create_mapping(dataset, model_name, dataset_path, model_path, dataset_suffix)
         seen_dataset.save_to_disk(dataset_path)
@@ -388,12 +335,13 @@ if __name__ == '__main__':
             from glob import glob
             ckpt = sorted(glob(f'matrix_plugin_results/{args.version}/checkpoints/*.ckpt'))[-1]
         print(ckpt)
-        sense_dict = return_sense_dict()
+        sense_dict = sense_dict
+        print(sense_dict)
         test(matrix, seen_dataset, mapping, tok, ckpt, sense_dict, args.log)
     else:
         # detach output embedding matrix so it will train
         model.get_output_embeddings().weight = torch.nn.Parameter(model.get_output_embeddings().weight.clone())
         best_ckpt = train(config, matrix, seen_dataset)
         matrix.eval()
-        sense_dict = return_sense_dict()
+        sense_dict = sense_dict
         test(matrix, seen_dataset, mapping, tok, best_ckpt, sense_dict, args.log)
