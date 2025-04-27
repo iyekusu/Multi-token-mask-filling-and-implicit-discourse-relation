@@ -33,10 +33,10 @@ Bibtex entry:
 Training/dev dataset extracted from Wikipedia English dataset (20220301.en)
 Test dataset: eg: experiment_1/test_preposed.csv
 
-To create the dataset you will first need to parse our released data (training/dev/test) by running mtc_model_2args. For example, to create the experiment 1 dataset run: `mtc_model_2args.py --dataset_name experiment_1`. This will create the preprocessed dataset under `data/input_data_bert-base-cased_experiment_1/` using bert-base-cased by default.
+To create the dataset you will first need to parse our released data (training/dev/test) by running mtc_model_2args. For example, to create the experiment 1 dataset run: `mtc_model_2args.py --dataset_name dataset_name`. This will create the preprocessed dataset under `data/input_data_bert-base-cased_dataset_name/` using bert-base-cased by default.
 
 ### Training
-* __EMAT decoder__ - run `matrix_plugin_experiment_1.py --input_path data/input_data_bert-base-cased_experiment_1/`
+* __EMAT decoder__ - run `matrix_plugin.py --input_path data/input_data_bert-base-cased_dataset_name/`
 
 ### Testing
-* __EMAT decoder__ - run `matrix_plugin_experiment_1.py --input_path data/input_data_bert-base-cased_experiment_1/  --ckpt <CHECKPOINT_PATH> --test`
+* __EMAT decoder__ - run `matrix_plugin.py --input_path data/input_data_bert-base-cased_dataset_name/  --ckpt <CHECKPOINT_PATH> --test`
